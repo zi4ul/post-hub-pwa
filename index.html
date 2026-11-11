@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Post Hub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a6cff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --mut:#666; --line:#d8d8de; --acc:#0a6cff; --ok:#0a8a3a; --bad:#c62828; --card:#f5f5f8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111214; --fg:#eee; --mut:#9a9aa3; --line:#2c2d33; --acc:#4c9aff; --ok:#3ecf74; --bad:#ff6b6b; --card:#1a1b1f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:max(16px, env(safe-area-inset-top)) 16px calc(76px + env(safe-area-inset-bottom)); background:var(--bg); color:var(--fg);
+         font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width:640px; margin-inline:auto; }
+  h1 { font-size:20px; margin:0 0 4px; } .mut { color:var(--mut); font-size:14px; }
+  label { display:block; margin:12px 0 4px; font-weight:600; font-size:14px; }
+  input[type=text], input[type=password], input[type=url] { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font-size:16px; }
+  button { padding:11px 14px; border:0; border-radius:8px; background:var(--acc); color:#fff; font-size:16px; font-weight:600; margin:8px 8px 0 0; }
+  button.sec { background:var(--card); color:var(--fg); border:1px solid var(--line); }
+  button:disabled { opacity:.5; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:14px; }
+  .ok { color:var(--ok); font-weight:700; } .bad { color:var(--bad); font-weight:700; }
+  textarea { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font:16px/1.4 inherit; }
+  input[type=datetime-local] { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); font-size:16px; margin-top:8px; }
+  input[type=file] { width:100%; padding:10px 0; font-size:16px; }
+  .plat { display:flex; justify-content:space-between; align-items:center; padding:4px 0; }
+  label.chk { display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0; font-weight:500; font-size:16px; }
+  .msg { white-space:pre-wrap; margin-top:10px; font-size:14px; }
+  .prow { padding:9px 4px; border-top:1px solid var(--line); font-size:15px; }
+  .prow.sel { color:var(--acc); font-weight:700; }
+  .over { color:var(--bad); font-weight:700; }
+  .panel[hidden] { display:none; }
+  nav { position:fixed; left:0; right:0; bottom:0; display:flex; background:var(--bg); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  nav button { flex:1; margin:0; border-radius:0; background:transparent; color:var(--mut); padding:14px 4px; font-size:14px; }
+  nav button[aria-selected=true] { color:var(--acc); }
+</style>
+</head>
+<body>
+<h1>Post Hub</h1>
+
+<section class="panel" data-panel="buat">
+  <label for="file">Video</label>
+  <input id="file" type="file" accept="video/*">
+  <div id="vinfo" class="mut">Belum ada video.</div>
+
+  <label for="desc">Deskripsi</label>
+  <textarea id="desc" rows="4" placeholder="Tulis deskripsi video"></textarea>
+  <label for="tags">Hashtag</label>
+  <input id="tags" type="text" placeholder="#diskon #fashion" autocapitalize="off" autocorrect="off">
+
+  <label>Platform</label>
+  <div class="box">
+    <div class="plat"><label class="chk"><input id="p-shopee" type="checkbox" checked> Shopee Video</label><span id="cnt-shopee" class="mut"></span></div>
+    <div class="plat"><label class="chk"><input id="p-tiktok" type="checkbox" checked> TikTok</label><span id="cnt-tiktok" class="mut"></span></div>
+    <div class="plat"><label class="chk"><input id="p-instagram" type="checkbox"> Instagram</label><span id="cnt-instagram" class="mut"></span></div>
+  </div>
+
+  <label>Produk</label>
+  <div class="box" id="prodbox">
+    <div class="plat"><span id="prod-msg" class="mut"></span><button id="prod-reload" class="sec">Muat ulang</button></div>
+    <div id="prod-shopee"></div>
+    <div id="prod-tiktok"></div>
+  </div>
+
+  <label>Kapan diposting</label>
+  <div class="box">
+    <label class="chk"><input id="when-now" type="radio" name="when" checked> Sekarang</label>
+    <label class="chk"><input id="when-sched" type="radio" name="when"> Jadwalkan</label>
+    <input id="sched" type="datetime-local" hidden>
+  </div>
+
+  <div id="errs" class="bad msg"></div>
+  <div id="warns" class="mut msg"></div>
+  <button id="send" disabled>Kirim</button>
+  <div id="sendmsg" class="mut msg"></div>
+</section>
+
+<section class="panel" data-panel="daftar" hidden>
+  <button id="jobs-reload" class="sec">Muat ulang</button>
+  <div id="jobs-msg" class="mut msg"></div>
+  <div id="jobs"></div>
+</section>
+
+<section class="panel" data-panel="setelan" hidden>
+  <div class="mut">Isi sekali; tersimpan di iPhone ini.</div>
+  <label for="hub">URL web app hub (Apps Script)</label>
+  <input id="hub" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" autocorrect="off">
+  <label for="tok">Token klien</label>
+  <input id="tok" type="password" autocapitalize="off" autocorrect="off">
+  <button id="save">Simpan</button>
+  <button id="ping" class="sec">Tes koneksi</button>
+  <div class="box"><div id="result" class="mut">Belum ada hasil.</div></div>
+</section>
+
+<nav role="tablist">
+  <button role="tab" data-tab="buat" aria-selected="true">Buat Posting</button>
+  <button role="tab" data-tab="daftar" aria-selected="false">Daftar Job</button>
+  <button role="tab" data-tab="setelan" aria-selected="false">Pengaturan</button>
+</nav>
+
+<script src="core.js"></script>
+<script src="upload.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
