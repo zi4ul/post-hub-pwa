@@ -16,6 +16,11 @@
 - Setelah mengunggah versi baru, naikkan angka `CACHE` di `sw.js` (`post-hub-shell-v2`, dst.), lalu tutup penuh dan buka ulang aplikasi.
 - Service worker hanya menyimpan kerangka halaman. Panggilan ke hub dan Google Drive selalu lewat jaringan.
 
+## 3b. Pembaruan T39/T40 (produk dulu, thumbnail, pustaka video)
+1. Unggah ulang SEMUA berkas `pwa/` ke repositori (`index.html`, `core.js`, `app.js`, `sw.js`, ...). `sw.js` sudah dinaikkan ke `post-hub-shell-v2`.
+2. Hub: tempel ulang `hub/Api.gs` DAN `hub/Upload.gs` di Apps Script, lalu **Deploy > Kelola deployment > Edit > Versi baru** (URL tetap). Tanpa ini tab "Pernah diunggah" menampilkan "Hub belum diperbarui".
+3. Tutup penuh aplikasi di HP lalu buka lagi. Thumbnail produk muncul setelah Reafter men-scrape katalog (Pengaturan > Scrape Produk).
+
 ## 4. Catatan
 - Unggah video harus dilakukan dengan layar menyala dan halaman tetap terbuka (iOS menghentikan unggahan di latar belakang).
 - Yang BELUM DIUJI: pemasangan di iPhone asli. Uji dengan video ≥ 50 MB.

@@ -29,8 +29,25 @@
   .plat { display:flex; justify-content:space-between; align-items:center; padding:4px 0; }
   label.chk { display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0; font-weight:500; font-size:16px; }
   .msg { white-space:pre-wrap; margin-top:10px; font-size:14px; }
-  .prow { padding:9px 4px; border-top:1px solid var(--line); font-size:15px; }
-  .prow.sel { color:var(--acc); font-weight:700; }
+  .pgrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:8px; }
+  .pcard { position:relative; border:2px solid var(--line); border-radius:10px; overflow:hidden; background:var(--bg); cursor:pointer; }
+  .pcard.sel { border-color:var(--acc); }
+  .pcard .pimg { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:var(--card); }
+  .pcard .noimg { width:100%; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; background:var(--card); color:var(--mut); font-size:26px; }
+  .pcard .pname { padding:4px 6px 6px; font-size:12px; line-height:1.3; height:2.9em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .pcard .pchk { position:absolute; top:4px; right:4px; width:22px; height:22px; border-radius:50%; background:var(--acc); color:#fff; font-size:14px; font-weight:700; line-height:22px; text-align:center; }
+  .pcard.sel .pname { color:var(--acc); font-weight:700; }
+  .seg { display:flex; gap:0; margin-top:6px; }
+  .seg button { flex:1; margin:0; border-radius:0; }
+  .seg button:first-child { border-radius:8px 0 0 8px; } .seg button:last-child { border-radius:0 8px 8px 0; }
+  .seg button:not(.on) { background:var(--card); color:var(--fg); border:1px solid var(--line); }
+  .vrow { display:flex; gap:10px; align-items:center; padding:8px 4px; border-top:1px solid var(--line); cursor:pointer; border-left:3px solid transparent; }
+  .vrow.sel { border-left-color:var(--acc); background:var(--bg); }
+  .vrow .vthumb, .vrow .vnothumb { width:48px; height:86px; border-radius:6px; object-fit:cover; flex:none; background:var(--line); }
+  .vrow .vnothumb { display:flex; align-items:center; justify-content:center; font-size:22px; color:var(--mut); }
+  .vrow .vtxt { flex:1; min-width:0; } .vrow .vname { font-weight:600; font-size:15px; overflow-wrap:anywhere; } .vrow .vmeta { font-size:13px; color:var(--mut); }
+  .vrow button { margin:0; padding:8px 10px; flex:none; }
+  .locked { opacity:.55; }
   .over { color:var(--bad); font-weight:700; }
   .panel[hidden] { display:none; }
   nav { position:fixed; left:0; right:0; bottom:0; display:flex; background:var(--bg); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
@@ -42,8 +59,33 @@
 <h1>Post Hub</h1>
 
 <section class="panel" data-panel="buat">
-  <label for="file">Video</label>
-  <input id="file" type="file" accept="video/*">
+  <label>1. Platform</label>
+  <div class="box">
+    <div class="plat"><label class="chk"><input id="p-shopee" type="checkbox" checked> Shopee Video</label><span id="cnt-shopee" class="mut"></span></div>
+    <div class="plat"><label class="chk"><input id="p-tiktok" type="checkbox" checked> TikTok</label><span id="cnt-tiktok" class="mut"></span></div>
+    <div class="plat"><label class="chk"><input id="p-instagram" type="checkbox"> Instagram</label><span id="cnt-instagram" class="mut"></span></div>
+  </div>
+
+  <label>2. Pilih produk dulu</label>
+  <div class="box" id="prodbox">
+    <div class="plat"><span id="prod-msg" class="mut"></span><button id="prod-reload" class="sec">Muat ulang</button></div>
+    <div id="prod-shopee"></div>
+    <div id="prod-tiktok"></div>
+  </div>
+
+  <label>3. Video</label>
+  <div id="vidgate" class="mut"></div>
+  <div class="seg">
+    <button id="vtab-file" class="on">Dari HP</button>
+    <button id="vtab-lib">Pernah diunggah</button>
+  </div>
+  <div id="vpanel-file">
+    <input id="file" type="file" accept="video/*">
+  </div>
+  <div id="vpanel-lib" class="box" hidden>
+    <div class="plat"><span id="lib-msg" class="mut"></span><button id="lib-reload" class="sec">Muat ulang</button></div>
+    <div id="lib-list"></div>
+  </div>
   <div id="vinfo" class="mut">Belum ada video.</div>
 
   <label for="desc">Deskripsi</label>
@@ -51,26 +93,13 @@
   <label for="tags">Hashtag</label>
   <input id="tags" type="text" placeholder="#diskon #fashion" autocapitalize="off" autocorrect="off">
 
-  <label>Platform</label>
-  <div class="box">
-    <div class="plat"><label class="chk"><input id="p-shopee" type="checkbox" checked> Shopee Video</label><span id="cnt-shopee" class="mut"></span></div>
-    <div class="plat"><label class="chk"><input id="p-tiktok" type="checkbox" checked> TikTok</label><span id="cnt-tiktok" class="mut"></span></div>
-    <div class="plat"><label class="chk"><input id="p-instagram" type="checkbox"> Instagram</label><span id="cnt-instagram" class="mut"></span></div>
-  </div>
-
-  <label>Produk</label>
-  <div class="box" id="prodbox">
-    <div class="plat"><span id="prod-msg" class="mut"></span><button id="prod-reload" class="sec">Muat ulang</button></div>
-    <div id="prod-shopee"></div>
-    <div id="prod-tiktok"></div>
-  </div>
-
   <label>Kapan diposting</label>
   <div class="box">
     <label class="chk"><input id="when-now" type="radio" name="when" checked> Sekarang</label>
     <label class="chk"><input id="when-sched" type="radio" name="when"> Jadwalkan</label>
     <input id="sched" type="datetime-local" hidden>
   </div>
+  <label class="chk"><input id="keep" type="checkbox" checked> Simpan video di Drive agar bisa dipakai lagi</label>
 
   <div id="errs" class="bad msg"></div>
   <div id="warns" class="mut msg"></div>

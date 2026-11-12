@@ -47,6 +47,7 @@
   var CAPTION_LIMIT = { shopee: 150, tiktok: 4000, instagram: 2200 };
   var MAX_PRODUCTS = { shopee: 6, tiktok: 1, instagram: 0 };
   var PLATFORMS = ['shopee', 'tiktok', 'instagram'];
+  var PNAMES = { shopee: 'Shopee Video', tiktok: 'TikTok', instagram: 'Instagram' };
 
   function parseTags(input) {
     var arr = Array.isArray(input) ? input : String(input == null ? '' : input).split(/[\s,]+/);
@@ -86,7 +87,11 @@
       if (MAX_PRODUCTS[p] > 0) {
         var prods = Array.isArray(plats[p].products) ? plats[p].products : [];
         if (prods.length > MAX_PRODUCTS[p]) err('too_many_products', 'Maksimal ' + MAX_PRODUCTS[p] + ' produk untuk ' + p + ', dipilih ' + prods.length + '.', p);
-        if (prods.length === 0) warn('no_products', 'Belum ada produk dipilih untuk ' + p + '.', p);
+        if (prods.length === 0) {
+          // T39: bila katalog ada (requireProducts[p]), produk WAJIB dipilih sebelum video diunggah
+          if (form.requireProducts && form.requireProducts[p]) err('products_required', 'Pilih produk dulu untuk ' + PNAMES[p] + '.', p);
+          else warn('no_products', 'Belum ada produk dipilih untuk ' + p + '.', p);
+        }
       }
     });
 
@@ -178,7 +183,11 @@
     }
     var v = validateForm(form || {});
     if (v.errors.length) return { ok: false, stage: 'validate', message: v.errors[0].msg, resume: st };
-    if (!file) return { ok: false, stage: 'validate', message: 'Pilih video dulu.', resume: st };
+    // T40: video dari pustaka (sudah di Drive) → form.video.driveFileId terisi, tanpa berkas lokal; lewati upload.init/unggah
+    var reuse = !file && form && form.video && /^[\w-]{10,}$/.test(String(form.video.driveFileId || ''));
+    if (!file && !reuse) return { ok: false, stage: 'validate', message: 'Pilih video dulu.', resume: st };
+    var fileSize = reuse ? Number(form.video.size) : file.size;
+    if (reuse) { st.fileId = form.video.driveFileId; st.session = st.session || { reused: true }; }
 
     if (!st.fileId) {
       if (!st.session) {
@@ -197,8 +206,9 @@
     if (!st.finished) {
       say('Memeriksa berkas di Drive …');
       var fin;
-      try { fin = await deps.hub('upload.finish', { fileId: st.fileId, size: file.size }); }
+      try { fin = await deps.hub('upload.finish', { fileId: st.fileId, size: fileSize }); }
       catch (e) { return fail('finish', 'Gagal memverifikasi unggahan: ' + e.message + '.'); }
+      if (fin && fin.error === 'file_trashed') return { ok: false, stage: 'finish', message: 'Video ini sudah dihapus dari Drive. Pilih video lain atau unggah ulang dari HP.', resume: null };
       if (!fin || !fin.ok) return fail('finish', 'Verifikasi unggahan ditolak: ' + errText(fin, 'tidak diketahui') + '.');
       st.finished = true;
     }
@@ -207,7 +217,7 @@
     try { made = await deps.hub('job.create', buildJobPayload(form, form.video, st.fileId)); }
     catch (e) { return fail('job', 'Video sudah terunggah, tetapi job gagal dibuat: ' + e.message + '.'); }
     if (!made || !made.ok) return fail('job', 'Video sudah terunggah, tetapi hub menolak job: ' + errText(made, 'tidak diketahui') + '.');
-    return { ok: true, stage: 'done', message: 'Terkirim. Job masuk antrean.', jobId: made.jobId || (made.job && made.job.id) || null, resume: null };
+    return { ok: true, stage: 'done', message: 'Terkirim. Job masuk antrean.', jobId: made.jobId || (made.job && made.job.id) || null, fileId: st.fileId, resume: null };
   }
 
   // ---------- Daftar Job (T09): status → teks Indonesia + warna (cls: ok/bad/warn/mut) ----------
@@ -216,7 +226,6 @@
     needsAction: ['Perlu tindakan Anda', 'bad'], done: ['Selesai', 'ok'], partial: ['Sebagian berhasil', 'warn'],
     error: ['Gagal', 'bad'], cancelled: ['Dibatalkan', 'mut'], skipped: ['Tidak dipakai', 'mut']
   };
-  var PNAMES = { shopee: 'Shopee Video', tiktok: 'TikTok', instagram: 'Instagram' };
   function statusInfo(state) {
     var x = STATUS[state];
     return x ? { text: x[0], cls: x[1] } : { text: 'Status tidak dikenal (' + String(state) + ')', cls: 'mut' };
@@ -245,6 +254,44 @@
     };
   }
 
-  return { pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
+  // ---------- T40: pustaka video ----------
+  // Thumbnail dibuat di HP saat video dipilih (Drive tak bisa memberi gambar tanpa login), disimpan di penyimpanan browser per id Drive.
+  var KEY_VMETA = 'posthub.vmeta', MAX_VMETA = 60, MAX_THUMB = 20000;
+  function loadVideoMeta(storage) {
+    try { var o = JSON.parse(storage.getItem(KEY_VMETA) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; }
+  }
+  // meta: {thumb?, width?, height?, durationSec?}. Mengembalikan false bila gagal simpan. Tertua dibuang bila > MAX_VMETA.
+  function saveVideoMeta(storage, id, meta, nowMs) {
+    id = String(id || ''); if (!id || !meta || typeof meta !== 'object') return false;
+    var all = loadVideoMeta(storage);
+    var thumb = typeof meta.thumb === 'string' && /^data:image\/jpeg;base64,/.test(meta.thumb) && meta.thumb.length <= MAX_THUMB ? meta.thumb : '';
+    all[id] = { t: Number(nowMs) || Date.now(), thumb: thumb, width: Number(meta.width) || 0, height: Number(meta.height) || 0, durationSec: Number(meta.durationSec) || 0 };
+    var ids = Object.keys(all).sort(function (a, b) { return all[b].t - all[a].t; });
+    ids.slice(MAX_VMETA).forEach(function (k) { delete all[k]; });
+    try { storage.setItem(KEY_VMETA, JSON.stringify(all)); return true; } catch (e) { return false; }
+  }
+  // driveVideos: hasil hub video.list; meta: hasil loadVideoMeta. Data HP menang atas Drive bila lebih lengkap.
+  function mergeLibrary(driveVideos, meta) {
+    meta = meta || {};
+    return (Array.isArray(driveVideos) ? driveVideos : []).filter(function (v) { return v && v.id; }).map(function (v) {
+      var m = meta[v.id] || {};
+      return { id: String(v.id), name: String(v.name || ''), size: Number(v.size) || 0, mime: v.mime || 'video/mp4', createdAt: v.createdAt || '',
+               width: Number(m.width) || Number(v.width) || 0, height: Number(m.height) || Number(v.height) || 0,
+               durationSec: Number(m.durationSec) || Number(v.durationSec) || 0, thumb: m.thumb || '' };
+    });
+  }
+  function describeVideo(v) {
+    var parts = [(Number(v.size) / 1048576).toFixed(1) + ' MB'];
+    if (v.width > 0 && v.height > 0) parts.push(v.width + '×' + v.height);
+    if (v.durationSec > 0) parts.push(Math.round(v.durationSec) + ' dtk');
+    var d = v.createdAt ? new Date(v.createdAt) : null;
+    if (d && !isNaN(d.getTime())) parts.push(d.getUTCDate() + '/' + (d.getUTCMonth() + 1) + '/' + d.getUTCFullYear());
+    return parts.join(' · ');
+  }
+  var VIDEO_ERRORS = { video_in_use: 'Video masih dipakai job yang belum selesai.', not_in_library: 'Berkas ini bukan bagian pustaka video.', file_not_found: 'Video sudah tidak ada di Drive.',
+    trash_failed: 'Drive gagal membuang video, coba lagi.', drive_list_failed: 'Hub gagal membaca Drive.', unknown_action: 'Hub belum diperbarui (tempel ulang Api.gs + Upload.gs lalu Deploy versi baru).' };
+  function videoErrorText(code) { return VIDEO_ERRORS[code] || ('ditolak hub: ' + code); }
+
+  return { loadVideoMeta: loadVideoMeta, saveVideoMeta: saveVideoMeta, mergeLibrary: mergeLibrary, describeVideo: describeVideo, videoErrorText: videoErrorText, pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
     CAPTION_LIMIT: CAPTION_LIMIT, MAX_PRODUCTS: MAX_PRODUCTS, loadSettings: loadSettings, saveSettings: saveSettings, hubCall: hubCall, KEY_HUB: KEY_HUB, KEY_TOK: KEY_TOK };
 });
