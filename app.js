@@ -26,23 +26,41 @@
   var PNAME = { shopee: 'Shopee', tiktok: 'TikTok' };
   var video = null;   // {name,size,mime,durationSec,width,height}; file asli di videoFile
 
-  function probe(f, cb, onThumb) { // info durasi/rasio via <video> (seperti spike); tidak menghalangi bila gagal. T40: thumbnail menyusul (info.thumb) tanpa menunda cb.
+  function probe(f, cb, onThumb) { // info durasi/rasio via <video>; tidak menghalangi bila gagal. Thumbnail menyusul (info.thumb) tanpa menunda cb.
+    // T65f: iOS Safari tidak menggambar frame dari <video> yang lepas dari halaman / preload=metadata -> video disematkan tersembunyi, preload=auto,
+    // tunggu frame benar-benar siap, dan ada cadangan play()->pause(). URL objek baru dilepas setelah thumbnail selesai (bukan 8 dtk dari awal).
     var info = { name: f.name, size: f.size, mime: f.type || '', durationSec: 0, width: 0, height: 0 };
-    var done = false, u = null, v = null;
-    function release() { try { window.URL.revokeObjectURL(u); } catch (e) {} }
+    var done = false, u = null, v = null, thumbDone = false, tries = 0;
+    function release() {
+      thumbDone = true;
+      try { window.URL.revokeObjectURL(u); } catch (e) {}
+      try { if (v && v.parentNode) v.parentNode.removeChild(v); } catch (e) {}
+    }
+    function capture() {
+      if (thumbDone) return;
+      try {
+        var w = 160, h = Math.round(w * v.videoHeight / v.videoWidth) || 284, c = document.createElement('canvas');
+        c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
+        var t = c.toDataURL('image/jpeg', 0.6);
+        if (t && t.length > 1500) { info.thumb = t; if (onThumb) onThumb(t); release(); return; }   // terlalu kecil = frame kosong
+      } catch (e) {}
+      if (tries++ < 1) forcePlay(); else release();
+    }
+    function forcePlay() {   // cadangan: putar sebentar agar frame didekode
+      try {
+        var pr = v.play();
+        var stop = function () { try { v.pause(); } catch (e) {} capture(); };
+        setTimeout(stop, 400);
+        if (pr && pr.catch) pr.catch(function () { release(); });
+      } catch (e) { release(); }
+    }
     function startThumb() {
       try {
-        v.onseeked = function () {
-          try {
-            var w = 160, h = Math.round(w * v.videoHeight / v.videoWidth) || 284, c = document.createElement('canvas');
-            c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
-            info.thumb = c.toDataURL('image/jpeg', 0.6);
-            if (onThumb) onThumb(info.thumb);
-          } catch (e) {}
-          release();
-        };
+        var later = function () { setTimeout(capture, 150); };
+        v.onseeked = function () { if (v.requestVideoFrameCallback) { try { v.requestVideoFrameCallback(capture); setTimeout(capture, 600); return; } catch (e) {} } later(); };
         v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
-        setTimeout(release, 8000);
+        setTimeout(function () { if (!thumbDone && !info.thumb) { tries = 1; forcePlay(); } }, 3500);   // seeked tak datang
+        setTimeout(release, 30000);
       } catch (e) { release(); }
     }
     function fin(ok) {
@@ -54,12 +72,15 @@
     try {
       v = document.createElement('video');
       u = window.URL.createObjectURL(f);
-      v.preload = 'metadata'; v.muted = true;
-      if (v.setAttribute) v.setAttribute('playsinline', '');
+      v.preload = 'auto'; v.muted = true;
+      if (v.setAttribute) { v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', ''); v.setAttribute('muted', ''); }
+      if (v.style) v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+      try { if (document.body && document.body.appendChild) document.body.appendChild(v); } catch (e) {}
       v.onloadedmetadata = function () { fin(true); };
       v.onerror = function () { fin(false); };
       v.src = u;
-      setTimeout(function () { fin(false); }, 8000);
+      if (v.load) { try { v.load(); } catch (e) {} }
+      setTimeout(function () { fin(false); }, 15000);
     } catch (e) { fin(false); }
   }
 
@@ -99,7 +120,7 @@
       !!String(f.description || '').trim(),
       !$('when-sched').checked || !Number.isNaN(Date.parse(f.scheduledAt))
     ], first = done.indexOf(false);
-    done.forEach(function (d, i) { $('sg' + (i + 1)).className = d ? 'done' : (i === first ? 'on' : ''); });
+    done.forEach(function (d, i) { $('sg' + (i + 1)).className = d ? 'fin' : (i === first ? 'on' : ''); });
   }
 
   function renderProducts() {
