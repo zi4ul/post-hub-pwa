@@ -274,11 +274,33 @@
     id = String(id || ''); if (!id || !meta || typeof meta !== 'object') return false;
     var all = loadVideoMeta(storage);
     var thumb = typeof meta.thumb === 'string' && /^data:image\/jpeg;base64,/.test(meta.thumb) && meta.thumb.length <= MAX_THUMB ? meta.thumb : '';
+    var prev = all[id] || {};
     all[id] = { t: Number(nowMs) || Date.now(), thumb: thumb, width: Number(meta.width) || 0, height: Number(meta.height) || 0, durationSec: Number(meta.durationSec) || 0 };
+    var alias = meta.alias !== undefined ? cleanAlias(meta.alias) : (prev.alias || '');   // nama alternatif hanya tampilan; nama asli di Drive tidak diubah
+    if (alias) all[id].alias = alias;
     var ids = Object.keys(all).sort(function (a, b) { return all[b].t - all[a].t; });
     ids.slice(MAX_VMETA).forEach(function (k) { delete all[k]; });
     try { storage.setItem(KEY_VMETA, JSON.stringify(all)); return true; } catch (e) { return false; }
   }
+  function cleanAlias(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 80); }
+  // simpan/hapus nama alternatif satu video (alias kosong = kembali ke nama asli). Data lain di meta dipertahankan.
+  function setVideoAlias(storage, id, alias) {
+    id = String(id || ''); if (!id) return false;
+    var all = loadVideoMeta(storage), e = all[id] || { t: Date.now(), thumb: '', width: 0, height: 0, durationSec: 0 }, al = cleanAlias(alias);
+    if (al) e.alias = al; else delete e.alias;
+    all[id] = e;
+    try { storage.setItem(KEY_VMETA, JSON.stringify(all)); return true; } catch (err) { return false; }
+  }
+  // potong nama panjang di TENGAH, ekstensi tetap terlihat: "IMG_2026_pro…_final.mp4"
+  function shortName(name, max) {
+    name = String(name == null ? '' : name); max = max > 8 ? max : 28;
+    if (name.length <= max) return name;
+    var dot = name.lastIndexOf('.'), ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : '', base = ext ? name.slice(0, dot) : name;
+    var keep = max - ext.length - 1, head = Math.ceil(keep * 0.6), tail = keep - head;
+    return base.slice(0, head) + '…' + (tail > 0 ? base.slice(-tail) : '') + ext;
+  }
+  // nama yang ditampilkan: alias bila ada, kalau tidak nama asli
+  function displayName(v) { return (v && (v.alias || v.name)) || ''; }
   // driveVideos: hasil hub video.list; meta: hasil loadVideoMeta. Data HP menang atas Drive bila lebih lengkap.
   function mergeLibrary(driveVideos, meta) {
     meta = meta || {};
@@ -286,7 +308,7 @@
       var m = meta[v.id] || {};
       return { id: String(v.id), name: String(v.name || ''), size: Number(v.size) || 0, mime: v.mime || 'video/mp4', createdAt: v.createdAt || '',
                width: Number(m.width) || Number(v.width) || 0, height: Number(m.height) || Number(v.height) || 0,
-               durationSec: Number(m.durationSec) || Number(v.durationSec) || 0, thumb: m.thumb || '' };
+               durationSec: Number(m.durationSec) || Number(v.durationSec) || 0, thumb: m.thumb || '', alias: m.alias || '' };
     });
   }
   function describeVideo(v) {
@@ -321,6 +343,6 @@
     return { value: out, caret: Math.max(0, Math.min(c, out.length)) };
   }
 
-  return { typeInto: typeInto, loadVideoMeta: loadVideoMeta, saveVideoMeta: saveVideoMeta, mergeLibrary: mergeLibrary, describeVideo: describeVideo, videoErrorText: videoErrorText, pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
+  return { typeInto: typeInto, loadVideoMeta: loadVideoMeta, saveVideoMeta: saveVideoMeta, mergeLibrary: mergeLibrary, describeVideo: describeVideo, setVideoAlias: setVideoAlias, shortName: shortName, displayName: displayName, videoErrorText: videoErrorText, pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
     CAPTION_LIMIT: CAPTION_LIMIT, MAX_PRODUCTS: MAX_PRODUCTS, loadSettings: loadSettings, saveSettings: saveSettings, hubCall: hubCall, KEY_HUB: KEY_HUB, KEY_TOK: KEY_TOK };
 });

@@ -1,5 +1,7 @@
 // PWA Post Hub: navigasi 3 tab + Pengaturan (T05) + form (T06) + alur Kirim (T08) + Daftar Job (T09).
-// T64b (REV5): urutan form Video → Platform → Produk (tab Shopee/TikTok; wajib bila katalog ada) → Deskripsi → Jadwal → Kirim. Gerbang "produk dulu" (T39) dicabut. T40: pustaka video.
+// Form Buat Posting = Wizard 6 langkah, satu per layar (v1.15.0): Video → Platform → Produk (tab Shopee/TikTok; wajib bila katalog ada)
+//   → Deskripsi + hashtag → Waktu → Ringkasan (v1.16.0, tombol "Ubah" per bagian) → Kirim. T40: pustaka video.
+// Daftar Job: kartu bergambar + chip filter status dengan jumlah (v1.16.1).
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var Core = window.PostHubCore;
@@ -36,15 +38,31 @@
       try { window.URL.revokeObjectURL(u); } catch (e) {}
       try { if (v && v.parentNode) v.parentNode.removeChild(v); } catch (e) {}
     }
+    var pts = [], idx = 0, capIdx = -1, best = '', bestLum = -1;
+    function lumOf(ctx, w, h) {   // rata-rata terang piksel 0..255; -1 bila tak terbaca
+      try { var d = ctx.getImageData(0, 0, w, h).data, s = 0, n = 0; for (var k = 0; k < d.length; k += 64) { s += d[k] * 0.3 + d[k + 1] * 0.59 + d[k + 2] * 0.11; n++; } return n ? s / n : -1; } catch (e) { return -1; }
+    }
+    function accept(t) { info.thumb = t; if (onThumb) onThumb(t); release(); }
+    function nextPoint() {   // frame terlalu gelap -> loncat ke titik lain di video
+      if (idx + 1 < pts.length) { idx++; try { v.currentTime = pts[idx]; return true; } catch (e) {} }
+      return false;
+    }
     function capture() {
-      if (thumbDone) return;
+      if (thumbDone || capIdx === idx) return;
+      capIdx = idx;
       try {
-        var w = 160, h = Math.round(w * v.videoHeight / v.videoWidth) || 284, c = document.createElement('canvas');
-        c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
-        var t = c.toDataURL('image/jpeg', 0.6);
-        if (t && t.length > 1500) { info.thumb = t; if (onThumb) onThumb(t); release(); return; }   // terlalu kecil = frame kosong
+        var w = 160, h = Math.round(w * v.videoHeight / v.videoWidth) || 284, c = document.createElement('canvas'), ctx;
+        c.width = w; c.height = h; ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0, w, h);
+        var t = c.toDataURL('image/jpeg', 0.6), lum = lumOf(ctx, w, h);
+        if (t && t.length > 1500) {   // terlalu kecil = frame kosong
+          if (lum < 0 || lum >= 28) { accept(t); return; }   // cukup terang (atau tak bisa diukur): pakai
+          if (lum > bestLum) { bestLum = lum; best = t; }     // gelap: simpan yang paling terang sbg cadangan
+          if (nextPoint()) return;
+          if (best) { accept(best); return; }
+        }
       } catch (e) {}
-      if (tries++ < 1) forcePlay(); else release();
+      if (best) { accept(best); return; }
+      if (tries++ < 1) { capIdx = -1; forcePlay(); } else release();
     }
     function forcePlay() {   // cadangan: putar sebentar agar frame didekode
       try {
@@ -56,11 +74,13 @@
     }
     function startThumb() {
       try {
+        var dur = v.duration || 1, last = Math.max(0, dur - 0.1), raw = [Math.min(0.5, dur / 2), dur * 0.1, dur * 0.25, dur * 0.5, Math.min(2, dur * 0.8)];
+        raw.forEach(function (p) { p = Math.min(Math.max(0, p), last); if (!pts.some(function (q) { return Math.abs(q - p) < 0.2; })) pts.push(p); });
         var later = function () { setTimeout(capture, 150); };
         v.onseeked = function () { if (v.requestVideoFrameCallback) { try { v.requestVideoFrameCallback(capture); setTimeout(capture, 600); return; } catch (e) {} } later(); };
-        v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
-        setTimeout(function () { if (!thumbDone && !info.thumb) { tries = 1; forcePlay(); } }, 3500);   // seeked tak datang
-        setTimeout(release, 30000);
+        v.currentTime = pts[0];
+        setTimeout(function () { if (thumbDone || info.thumb) return; if (best) { accept(best); return; } tries = 1; capIdx = -1; forcePlay(); }, 3500);   // seeked tak datang
+        setTimeout(function () { if (!thumbDone && best) accept(best); else release(); }, 30000);
       } catch (e) { release(); }
     }
     function fin(ok) {
@@ -90,12 +110,19 @@
   function setHtml(id, html) { if (lastHtml[id] === html) return; lastHtml[id] = html; $(id).innerHTML = html; }
 
   // pratinjau video terpilih di langkah 1
+  var thumbSrc = '';
   function showThumb(src) {
-    var t = $('vthumb');
+    var t = $('vthumb'); thumbSrc = src || '';
     if (src) { t.className = ''; t.innerHTML = '<img class="vthumb" alt="" src="' + esc(src) + '">'; }
     else { t.className = 'vnothumb'; t.innerHTML = ''; t.textContent = '🎞'; }
   }
 
+  // Task 3: saat video terpilih → label, preview besar, tombol "Ganti video"; pemilih disembunyikan
+  function syncVsel() {
+    var on = !!video;
+    $('vlabel').hidden = !on; $('vchange').hidden = !on; $('vpick').hidden = on;
+    $('vprev').className = on ? 'vprev big' : 'vprev';
+  }
   // tab produk Shopee | TikTok: hanya platform yang dicentang; lencana jumlah; ● = masih wajib pilih produk
   var curTab = 'shopee';
   ['shopee', 'tiktok'].forEach(function (p) { $('ptab-' + p).addEventListener('change', function () { if ($('ptab-' + p).checked) curTab = p; refresh(); }); });
@@ -121,7 +148,113 @@
       !$('when-sched').checked || !Number.isNaN(Date.parse(f.scheduledAt))
     ], first = done.indexOf(false);
     done.forEach(function (d, i) { $('sg' + (i + 1)).className = d ? 'fin' : (i === first ? 'on' : ''); });
+    $('sg6').className = first < 0 ? 'on' : '';   // Ringkasan: langkah berikutnya bila 1-5 sudah lengkap
   }
+
+  // ---------- Wizard (v1.15.0): satu langkah per layar ----------
+  // cur = langkah yang tampil; reach = langkah terjauh yang boleh dibuka (langkah pertama yang masih terkunci).
+  var STEPS = [$('st1'), $('st2'), $('st3'), $('st4'), $('st5'), $('st6')];
+  var STEP_NAMES = ['Video', 'Platform', 'Produk', 'Deskripsi dan hashtag', 'Waktu', 'Ringkasan'];
+  var STEP_CODES = [['no_video'], ['no_platform'], ['products_required', 'too_many_products'], ['caption_too_long']];
+  var cur = 1, reach = 1, backTo6 = false;   // backTo6: langkah dibuka lewat "Ubah" → Lanjut kembali ke ringkasan
+
+  // alasan tiap langkah 1..5 belum boleh dilanjutkan ('' = boleh). Pesan diambil dari Core.validateForm.
+  function stepBlocks(r, f) {
+    var b = STEP_CODES.map(function (codes) {
+      var hit = r.errors.filter(function (e) { return codes.indexOf(e.code) >= 0; })[0];
+      return hit ? hit.msg : '';
+    });
+    var miss = productsMissing();
+    if (miss.length) b[2] = 'Pilih produk untuk ' + miss.map(function (p) { return PNAME[p]; }).join(' dan ') + '.';
+    b[4] = $('when-sched').checked && Number.isNaN(Date.parse(f.scheduledAt)) ? 'Isi tanggal dan jam jadwal.' : '';
+    return b;
+  }
+
+  // Ringkasan akhir: tiap bagian punya tombol "Ubah" (data-edit = nomor langkah) → buka langkah itu; Lanjut kembali ke ringkasan.
+  function sumSec(title, step, body) {
+    return '<div class="ssec"><div class="shead"><b>' + title + '</b><button class="sec sedit" data-edit="' + step + '" aria-label="Ubah ' + esc(title) + '">Ubah</button></div>' + body + '</div>';
+  }
+  function renderSummary(f) {
+    var vname = video ? Core.shortName(libSel ? Core.displayName(libSel) : ($('alias').value.trim() || video.name), 40) : '—';
+    var html = sumSec('Video', 1, '<div class="svid">' +
+      (thumbSrc ? '<img class="sthumb" alt="" src="' + esc(thumbSrc) + '">' : '<div class="snothumb">🎞</div>') +
+      '<div class="stxt"><div class="sname">' + esc(vname) + '</div>' + (video ? '<div class="mut">' + esc(Core.describeVideo(video)) + '</div>' : '') + '</div></div>');
+
+    var on = PLATS.filter(function (p) { return f.platforms[p].enabled; });
+    html += sumSec('Platform tujuan', 2, on.length ? '<div class="schips">' + on.map(function (p) { return '<span class="schip">' + esc(PFULL[p]) + '</span>'; }).join('') + '</div>' : '<div class="mut">Belum ada.</div>');
+
+    var prod = '';
+    on.forEach(function (p) {
+      if (p === 'instagram') { prod += '<div class="sprod"><div class="jpl">' + esc(PFULL[p]) + '</div><div class="mut">Tanpa produk</div></div>'; return; }
+      var items = f.platforms[p].products || [];
+      prod += '<div class="sprod"><div class="jpl">' + esc(PFULL[p]) + ' (' + items.length + '/' + Core.MAX_PRODUCTS[p] + ')</div>';
+      if (!items.length) prod += '<div class="mut">Belum ada produk dipilih.</div>';
+      items.forEach(function (it) {
+        var img = prodImgOf(p, it.id);
+        prod += '<div class="sitem">' + (img ? '<img class="jp" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + esc(img) + '">' : '<div class="jpno">🛍</div>') +
+          '<span>' + esc(Core.shortName(it.name || it.id, 44)) + '</span></div>';
+      });
+      prod += '</div>';
+    });
+    html += sumSec('Produk per platform', 3, prod || '<div class="mut">Pilih platform dulu.</div>');
+
+    var d = String(f.description || '').trim(), tags = Core.parseTags(f.hashtags);
+    html += sumSec('Deskripsi dan hashtag', 4,
+      '<div class="sdesc">' + (d ? esc(d) : '<span class="mut">Tanpa deskripsi.</span>') + '</div>' +
+      (tags.length ? '<div class="schips">' + tags.map(function (t) { return '<span class="schip tag">#' + esc(t) + '</span>'; }).join('') + '</div>' : '<div class="mut">Tanpa hashtag.</div>') +
+      (on.length ? '<div class="mut scount">' + on.map(function (p) { var n = Core.captionLength(p, d, tags), lim = Core.CAPTION_LIMIT[p]; return '<span class="' + (n > lim ? 'over' : '') + '">' + esc(PFULL[p]) + ' ' + n + '/' + lim + '</span>'; }).join(' · ') + '</div>' : ''));
+
+    html += sumSec('Waktu posting', 5, '<div>' + (f.scheduledAt ? 'Dijadwalkan ' + esc(String(f.scheduledAt).replace('T', ' ')) : 'Sekarang') + '</div>' +
+      '<div class="mut">' + (f.deleteAfter ? 'Video dihapus dari Drive setelah diposting.' : 'Video disimpan di Drive agar bisa dipakai lagi.') + '</div>');
+    setHtml('sumbox', html);
+  }
+  $('sumbox').addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-edit]') : null;
+    if (!t || sending) return;
+    backTo6 = true;
+    goStep(Number(t.getAttribute('data-edit')));
+  });
+  // gambar produk di ringkasan gagal dimuat → kotak ikon
+  $('sumbox').addEventListener('error', function (e) {
+    var t = e && e.target;
+    if (!t || t.tagName !== 'IMG' || !t.parentNode) return;
+    var d = document.createElement('div'); d.className = t.className === 'sthumb' ? 'snothumb' : 'jpno'; d.textContent = t.className === 'sthumb' ? '🎞' : '🛍';
+    t.parentNode.replaceChild(d, t);
+  }, true);
+
+  function renderWizard(blocks, errors, f) {
+    var first = blocks.map(Boolean).indexOf(true);
+    reach = first < 0 ? 6 : first + 1;
+    if (cur > reach) cur = reach;                 // langkah di depan jadi tidak valid (mis. video dibuang) → mundur ke yang perlu dibenahi
+    STEPS.forEach(function (el, k) { el.hidden = k + 1 !== cur; });
+    $('stepper').className = 'stepper s' + cur;
+    $('wzprog').textContent = 'Langkah ' + cur + ' dari 6 · ' + STEP_NAMES[cur - 1];
+    var last = cur === 6, why = last ? (errors[0] || '') : blocks[cur - 1];
+    $('wzback').hidden = cur === 1; $('wzback').disabled = sending;
+    $('wznext').hidden = last; $('wznext').disabled = !!why;
+    $('wznext').textContent = backTo6 && !last ? 'Simpan, ke ringkasan' : 'Lanjut';
+    $('send').hidden = !last;
+    $('wzwhy').textContent = why ? '✗ ' + why : ''; $('wzwhy').hidden = !why;   // alasan tepat di atas tombol
+    if (last) renderSummary(f);
+  }
+  function goStep(n) {
+    if (sending) return;
+    n = Math.max(1, Math.min(6, n, reach));       // tidak bisa melompati langkah yang masih terkunci
+    if (n === cur) return;
+    cur = n;
+    if (n === 6) backTo6 = false;
+    sendMsg('');
+    refresh();
+    if (window.scrollTo) window.scrollTo(0, 0);
+  }
+  $('wznext').addEventListener('click', function () { goStep(backTo6 ? 6 : cur + 1); });
+  $('wzback').addEventListener('click', function () { goStep(cur - 1); });
+  $('stepper').addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-go]') : null;
+    if (!t) return;
+    if (e.preventDefault) e.preventDefault();
+    goStep(Number(t.getAttribute('data-go')));
+  });
 
   function renderProducts() {
     var msg = catalogMsg;
@@ -207,6 +340,7 @@
   }
 
   function refresh() {
+    syncVsel();
     var f = readForm(), r = Core.validateForm(f), tags = Core.parseTags(f.hashtags);
     var errors = r.errors.map(function (e) { return e.msg; });
     PLATS.forEach(function (p) {
@@ -222,6 +356,7 @@
     $('file').disabled = false;
     $('vidgate').textContent = '';
     renderSteps(f);
+    renderWizard(stepBlocks(r, f), errors, f);
     renderLibrary();
     $('send').disabled = errors.length > 0 || sending;
     return { errors: errors, warnings: r.warnings };
@@ -230,7 +365,7 @@
   // ---------- Pustaka video (T40): video yang masih ada di Drive hub; pilih lagi tanpa unggah ulang ----------
   var libVideos = [], libSel = null, libLoaded = false;
   function libMsg(t, cls) { $('lib-msg').textContent = t; $('lib-msg').className = cls || 'mut'; }
-  function resetVideo() { libSel = null; video = null; $('vinfo').textContent = 'Belum ada video.'; showThumb(null); }
+  function resetVideo() { libSel = null; video = null; $('vinfo').textContent = 'Belum ada video.'; $('vinfo').title = ''; $('alias').value = ''; $('aliasbox').hidden = true; showThumb(null); }
   function setVmode(m) {
     $('vtab-file').className = m === 'file' ? 'on' : '';
     $('vtab-lib').className = m === 'lib' ? 'on' : '';
@@ -244,7 +379,10 @@
       var on = !!libSel && libSel.id === v.id;
       html += '<div class="vrow' + (on ? ' sel' : '') + '" data-vid="' + esc(v.id) + '">' +
         (v.thumb ? '<img class="vthumb" alt="" src="' + esc(v.thumb) + '">' : '<div class="vnothumb">🎬</div>') +
-        '<div class="vtxt"><div class="vname">' + (on ? '✓ ' : '') + esc(v.name) + '</div><div class="vmeta">' + esc(Core.describeVideo(v)) + '</div></div>' +
+        '<div class="vtxt"><div class="vname" title="' + esc(v.name) + '">' + (on ? '✓ ' : '') + esc(Core.shortName(Core.displayName(v), 30)) + '</div>' +
+        (v.alias ? '<div class="vmeta" title="' + esc(v.name) + '">Asli: ' + esc(Core.shortName(v.name, 26)) + '</div>' : '') +
+        '<div class="vmeta">' + esc(Core.describeVideo(v)) + '</div></div>' +
+        '<button class="sec" data-vren="' + esc(v.id) + '" aria-label="Ubah nama alternatif">✏️</button>' +
         '<button class="sec" data-vdel="' + esc(v.id) + '" aria-label="Hapus video">🗑</button></div>';
     });
     setHtml('lib-list', libLoaded ? (html || '<div class="mut">Belum ada video tersimpan. Video yang Anda kirim dari HP (dengan \"Simpan video di Drive\" dicentang) muncul di sini.</div>') : '');
@@ -270,15 +408,26 @@
       libSel = v;
       video = { name: v.name, size: v.size, mime: v.mime, durationSec: v.durationSec, width: v.width, height: v.height, driveFileId: v.id };
       $('file').value = '';
-      $('vinfo').textContent = '✓ Dari pustaka: ' + v.name + ' · ' + Core.describeVideo(v);
+      $('vinfo').textContent = '✓ Dari pustaka: ' + Core.shortName(Core.displayName(v), 30) + ' · ' + Core.describeVideo(v); $('vinfo').title = v.name; $('aliasbox').hidden = true;
       showThumb(v.thumb || null);
     }
     libMsg('');
     refresh();
   }
+  function renameLibVideo(id) {   // nama alternatif disimpan di HP saja; nama asli file di Drive tidak berubah
+    var v = libVideos.filter(function (x) { return x.id === id; })[0];
+    if (!v) return;
+    var r = window.prompt('Nama alternatif (kosongkan untuk kembali ke nama asli).\nNama asli: ' + v.name, v.alias || '');
+    if (r === null) return;
+    if (!Core.setVideoAlias(storage(), id, r)) { libMsg('Gagal menyimpan nama.', 'bad'); return; }
+    v.alias = String(r).replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (libSel && libSel.id === id) { libSel = v; $('vinfo').textContent = '✓ Dari pustaka: ' + Core.shortName(Core.displayName(v), 30) + ' · ' + Core.describeVideo(v); }
+    libMsg('Nama disimpan.', 'ok');
+    renderLibrary();
+  }
   function deleteLibVideo(id) {
     var v = libVideos.filter(function (x) { return x.id === id; })[0];
-    if (!v || !window.confirm('Hapus \"' + v.name + '\" dari Drive?\nVideo masuk tempat sampah Drive (bisa dipulihkan ±30 hari).')) return;
+    if (!v || !window.confirm('Hapus \"' + Core.shortName(Core.displayName(v), 40) + '\" dari Drive?\nVideo masuk tempat sampah Drive (bisa dipulihkan ±30 hari).')) return;
     var s = Core.loadSettings(storage());
     libMsg('Menghapus …');
     Core.hubCall(window.fetch.bind(window), s, 'video.delete', { fileId: id }).then(function (r) {
@@ -290,11 +439,17 @@
   $('lib-list').addEventListener('click', function (e) {
     var d = e.target && e.target.closest ? e.target.closest('[data-vdel]') : null;
     if (d) { deleteLibVideo(d.getAttribute('data-vdel')); return; }
+    var rid = e.target && e.target.getAttribute ? e.target.getAttribute('data-vren') : null;   // tombol ✏️ tidak punya elemen anak, jadi target = tombolnya
+    if (rid) { renameLibVideo(rid); return; }
     var r = e.target && e.target.closest ? e.target.closest('[data-vid]') : null;
     if (r) selectLibVideo(r.getAttribute('data-vid'));
   });
   $('lib-reload').addEventListener('click', loadLibrary);
   $('vtab-file').addEventListener('click', function () { setVmode('file'); });
+  $('vchange').addEventListener('click', function () {   // Ganti video: kosongkan pilihan, tampilkan pemilih lagi
+    var m = $('vpanel-lib').hidden ? 'file' : 'lib';
+    resetVideo(); $('file').value = ''; setVmode(m); refresh();
+  });
   $('vtab-lib').addEventListener('click', function () { setVmode('lib'); });
 
   // ---------- Kirim (T08): logika di Core.submitFlow; di sini hanya DOM, Wake Lock, dan ulang ----------
@@ -330,6 +485,7 @@
     $('done').hidden = true;
     sendMsg('');
     $('desc').value = ''; $('tags').value = '';
+    cur = 1; backTo6 = false;
     refresh();
     if (window.scrollTo) window.scrollTo(0, 0);
   });
@@ -356,7 +512,7 @@
       resume = r.resume;
       sendMsg((r.ok ? '✓ ' : '✗ ') + r.message, r.ok ? 'ok' : 'bad');
       if (r.ok) {
-        if (!useLib && r.fileId && video) Core.saveVideoMeta(storage(), r.fileId, video);   // thumbnail untuk pustaka + kartu Daftar Job (T64c)
+        if (!useLib && r.fileId && video) Core.saveVideoMeta(storage(), r.fileId, Object.assign({}, video, { alias: $('alias').value }));   // thumbnail untuk pustaka + kartu Daftar Job (T64c)
         showDone(formSnap, r.message);
         sentFile = null; $('file').value = ''; resetVideo();
         libLoaded = false; if (!$('vpanel-lib').hidden) loadLibrary();
@@ -373,7 +529,8 @@
     showThumb(null);
     probe(f, function (info, ok) {
       video = info;
-      $('vinfo').textContent = f.name + ' · ' + (f.size / 1048576).toFixed(1) + ' MB' +
+      $('vinfo').title = f.name; $('aliasbox').hidden = false;
+      $('vinfo').textContent = Core.shortName(f.name, 30) + ' · ' + (f.size / 1048576).toFixed(1) + ' MB' +
         (ok ? ' · ' + info.width + '×' + info.height + ' · ' + info.durationSec.toFixed(1) + ' dtk' : ' · info tidak terbaca (mungkin HEVC/.mov)');
       refresh();
     }, function (thumb) { if (video && video.name === f.name) showThumb(thumb); });
@@ -393,12 +550,41 @@
 
   // ---------- Daftar Job (T09): job.list, Batal, Lanjut (job.resume) ----------
   var jobsData = [];
+  // Filter status: tiap job masuk SATU kelompok (prioritas: perlu tindakan > lainnya), jadi jumlah chip bila dijumlah = Semua
+  // kecuali job dibatalkan / status tak dikenal, yang hanya muncul di Semua. Sebagian berhasil dihitung Gagal agar tidak terlewat.
+  var JFILTERS = [['all', 'Semua', $('jf-all')], ['run', 'Berjalan', $('jf-run')], ['done', 'Selesai', $('jf-done')], ['bad', 'Gagal', $('jf-bad')], ['need', 'Perlu tindakan', $('jf-need')]];
+  var jfilter = 'all';
+  function jobGroup(j, f) {
+    if (f.needsAction.length || j.status === 'needsAction') return 'need';
+    if (j.status === 'queued' || j.status === 'claimed' || j.status === 'running') return 'run';
+    if (j.status === 'done') return 'done';
+    if (j.status === 'error' || j.status === 'partial') return 'bad';
+    return '';
+  }
+  function renderJobChips(counts) {
+    JFILTERS.forEach(function (x) {
+      var n = counts[x[0]] || 0, b = x[2];
+      b.textContent = x[1] + ' (' + n + ')';
+      b.className = 'jchip' + (x[0] === jfilter ? ' on' : '') + (n === 0 && x[0] !== jfilter ? ' zero' : '') + (x[0] === 'need' && n > 0 ? ' alert' : '');
+      if (b.setAttribute) b.setAttribute('aria-pressed', x[0] === jfilter ? 'true' : 'false');
+    });
+  }
+  $('jfilter').addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-f]') : null;
+    if (!t) return;
+    jfilter = t.getAttribute('data-f');
+    renderJobs();
+  });
   function jobsMsg(t, cls) { $('jobs-msg').textContent = t; $('jobs-msg').className = (cls || 'mut') + ' msg'; }
   function prodImgOf(p, id) { var it = (catalog[p] || []).filter(function (x) { return x.id === id; })[0]; return it && it.img ? it.img : ''; }
   function renderJobs() {
-    var html = '', vm = Core.loadVideoMeta(storage());
+    var html = '', vm = Core.loadVideoMeta(storage()), counts = { all: jobsData.length };
+    jobsData.forEach(function (j) { var g = jobGroup(j, Core.formatJob(j)); if (g) counts[g] = (counts[g] || 0) + 1; });
+    renderJobChips(counts);
     jobsData.forEach(function (j) {
-      var f = Core.formatJob(j), vt = (vm[f.videoId] || {}).thumb, withProds = f.platforms.filter(function (p) { return p.products.length; });
+      var f = Core.formatJob(j);
+      if (jfilter !== 'all' && jobGroup(j, f) !== jfilter) return;
+      var vt = (vm[f.videoId] || {}).thumb, withProds = f.platforms.filter(function (p) { return p.products.length; });
       html += '<div class="jcard" data-job="' + esc(f.id) + '"><div class="jvis">' +
         (vt ? '<img class="jthumb" alt="" src="' + esc(vt) + '">' : '<div class="jnothumb">🎬</div>') + '<div class="jprods">';
       withProds.forEach(function (p) {
@@ -411,7 +597,7 @@
         html += '</div></div>';
       });
       if (!withProds.length) html += '<div class="mut">Tanpa produk</div>';
-      html += '</div></div><div class="jhead"><div class="jtitle">' + esc(f.title) + '</div><span class="jbadge ' + f.cls + '">' + esc(f.statusText) + '</span></div>';
+      html += '</div></div><div class="jhead"><div class="jtitle" title="' + esc(f.title) + '">' + esc(Core.shortName((vm[f.videoId] || {}).alias || f.title, 34)) + '</div><span class="jbadge ' + f.cls + '">' + esc(f.statusText) + '</span></div>';
       var meta = [f.when, f.sizeText].filter(Boolean).join(' · ');
       if (meta) html += '<div class="jmeta">' + esc(meta) + '</div>';
       f.platforms.forEach(function (p) {
@@ -427,7 +613,7 @@
       if (f.canCancel) html += '<button class="sec" data-cancel="' + esc(f.id) + '">Batalkan</button>';
       html += '</div>';
     });
-    $('jobs').innerHTML = html || '<div class="box mut">Belum ada job.</div>';
+    $('jobs').innerHTML = html || '<div class="box mut">' + (jobsData.length ? 'Tidak ada job dengan status ini.' : 'Belum ada job.') + '</div>';
   }
   // gambar produk/thumbnail job gagal dimuat → kotak ikon
   $('jobs').addEventListener('error', function (e) {
