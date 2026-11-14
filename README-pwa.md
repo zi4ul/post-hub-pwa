@@ -24,3 +24,8 @@
 ## 4. Catatan
 - Unggah video harus dilakukan dengan layar menyala dan halaman tetap terbuka (iOS menghentikan unggahan di latar belakang).
 - Yang BELUM DIUJI: pemasangan di iPhone asli. Uji dengan video ≥ 50 MB.
+
+## 3c. Pembaruan T64d (tampilan baru "Pernah diunggah", layar sukses, animasi)
+1. Unggah ulang SEMUA berkas `pwa/` ke repositori GitHub Pages: `index.html`, `app.js`, `core.js`, `upload.js`, `manifest.json`, `sw.js`, ikon. Di GitHub: *Add file → Upload files*, timpa berkas lama, *Commit changes*. `sw.js` sudah dinaikkan ke `post-hub-shell-v5`.
+2. Tunggu 1–2 menit, lalu **tutup penuh** aplikasi di HP (geser ke atas dari app switcher) dan buka lagi. Bila tampilan lama masih muncul, tutup-buka sekali lagi.
+3. Yang baru: tab "Pernah diunggah" berupa kartu bergambar; setelah Kirim muncul layar sukses (ringkasan platform + tombol **Kirim lagi** / **Lihat Daftar Job**); animasi halus (otomatis nonaktif bila HP diatur "Kurangi Gerakan"); warna bilah status mengikuti mode terang/gelap.

@@ -236,6 +236,11 @@
     { decision: 'markDone', label: 'Sudah terposting', warning: '' },
     { decision: 'close', label: 'Tutup tanpa coba lagi', warning: '' }
   ];
+  // T64c: waktu ringkas untuk kartu job (zona waktu HP)
+  function jobFmtDT(iso) {
+    var d = new Date(iso); if (!iso || isNaN(d.getTime())) return '';
+    return d.getDate() + '/' + (d.getMonth() + 1) + ' ' + (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  }
   function formatJob(job) {
     job = job || {};
     var si = statusInfo(job.status), plats = [], needs = [];
@@ -243,13 +248,17 @@
       var e = job.platforms && job.platforms[p];
       if (!e || !e.enabled) return;
       var pi = statusInfo(e.state);
-      plats.push({ key: p, label: PNAMES[p], state: e.state, text: pi.text, cls: pi.cls, msg: e.msg || '' });
+      var prods = (Array.isArray(e.products) ? e.products : []).filter(function (x) { return x && x.id; }).map(function (x) { return { id: String(x.id), name: String(x.name || '') }; });
+      plats.push({ key: p, label: PNAMES[p], state: e.state, text: pi.text, cls: pi.cls, msg: e.msg || '', products: prods });
       if (e.state === 'needsAction') needs.push(p);
     });
     var closed = job.status === 'done' || job.status === 'partial' || job.status === 'error' || job.status === 'cancelled';
     return {
       id: job.id || '', title: (job.video && job.video.name) || job.id || '(tanpa nama)',
       statusText: si.text, cls: si.cls, platforms: plats,
+      videoId: (job.video && job.video.driveFileId) || '',
+      when: jobFmtDT(job.scheduledAt) ? 'Dijadwalkan ' + jobFmtDT(job.scheduledAt) : (jobFmtDT(job.createdAt) ? 'Dibuat ' + jobFmtDT(job.createdAt) : ''),
+      sizeText: job.video && Number(job.video.size) > 0 ? (Number(job.video.size) / 1048576).toFixed(1) + ' MB' : '',
       canCancel: !!job.id && !closed, needsAction: needs, canResume: job.status === 'needsAction' && needs.length > 0
     };
   }
@@ -292,6 +301,26 @@
     trash_failed: 'Drive gagal membuang video, coba lagi.', drive_list_failed: 'Hub gagal membaca Drive.', unknown_action: 'Hub belum diperbarui (tempel ulang Api.gs + Upload.gs lalu Deploy versi baru).' };
   function videoErrorText(code) { return VIDEO_ERRORS[code] || ('ditolak hub: ' + code); }
 
-  return { loadVideoMeta: loadVideoMeta, saveVideoMeta: saveVideoMeta, mergeLibrary: mergeLibrary, describeVideo: describeVideo, videoErrorText: videoErrorText, pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
+  // T64b: hashtag otomatis saat mengetik. SALINAN `typeInto` dari reafter-app/src/mu/hashtag.js (T62a); paritas dijaga tests/pwa-core.test.js.
+  // Bertambah (ketik/tempel): tiap kata diberi '#', '##' dirapikan; berkurang (Backspace): tidak diubah supaya tidak macet.
+  function typeInto(prev, next, caret) {
+    prev = String(prev == null ? '' : prev); next = String(next == null ? '' : next);
+    var c0 = caret == null ? next.length : Math.max(0, Math.min(Number(caret), next.length));
+    if (next.length <= prev.length) return { value: next, caret: c0 };
+    var out = '', last = 0, c = c0, re = /[^\s,]+/g, m;
+    while ((m = re.exec(next))) {
+      var start = m.index, end = start + m[0].length, hashes = (m[0].match(/^#*/) || [''])[0].length;
+      var fixed = '#' + m[0].slice(hashes);
+      out += next.slice(last, start) + fixed; last = end;
+      var delta = fixed.length - m[0].length;
+      if (!delta) continue;
+      if (c >= end) c += delta;
+      else if (c > start) c += hashes ? -Math.min(c - start, hashes - 1) : 1;
+    }
+    out += next.slice(last);
+    return { value: out, caret: Math.max(0, Math.min(c, out.length)) };
+  }
+
+  return { typeInto: typeInto, loadVideoMeta: loadVideoMeta, saveVideoMeta: saveVideoMeta, mergeLibrary: mergeLibrary, describeVideo: describeVideo, videoErrorText: videoErrorText, pickProduct: pickProduct, submitFlow: submitFlow, statusInfo: statusInfo, formatJob: formatJob, RESUME_CHOICES: RESUME_CHOICES, buildJobPayload: buildJobPayload, parseTags: parseTags, buildCaption: buildCaption, captionLength: captionLength, validateForm: validateForm,
     CAPTION_LIMIT: CAPTION_LIMIT, MAX_PRODUCTS: MAX_PRODUCTS, loadSettings: loadSettings, saveSettings: saveSettings, hubCall: hubCall, KEY_HUB: KEY_HUB, KEY_TOK: KEY_TOK };
 });

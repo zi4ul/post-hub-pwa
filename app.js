@@ -1,5 +1,5 @@
 // PWA Post Hub: navigasi 3 tab + Pengaturan (T05) + form (T06) + alur Kirim (T08) + Daftar Job (T09).
-// T39: urutan form Platform → Produk (thumbnail, wajib bila katalog ada) → Video. T40: pustaka video (pakai ulang tanpa unggah).
+// T64b (REV5): urutan form Video → Platform → Produk (tab Shopee/TikTok; wajib bila katalog ada) → Deskripsi → Jadwal → Kirim. Gerbang "produk dulu" (T39) dicabut. T40: pustaka video.
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var Core = window.PostHubCore;
@@ -26,7 +26,7 @@
   var PNAME = { shopee: 'Shopee', tiktok: 'TikTok' };
   var video = null;   // {name,size,mime,durationSec,width,height}; file asli di videoFile
 
-  function probe(f, cb) { // info durasi/rasio via <video> (seperti spike); tidak menghalangi bila gagal. T40: thumbnail menyusul (info.thumb) tanpa menunda cb.
+  function probe(f, cb, onThumb) { // info durasi/rasio via <video> (seperti spike); tidak menghalangi bila gagal. T40: thumbnail menyusul (info.thumb) tanpa menunda cb.
     var info = { name: f.name, size: f.size, mime: f.type || '', durationSec: 0, width: 0, height: 0 };
     var done = false, u = null, v = null;
     function release() { try { window.URL.revokeObjectURL(u); } catch (e) {} }
@@ -37,6 +37,7 @@
             var w = 160, h = Math.round(w * v.videoHeight / v.videoWidth) || 284, c = document.createElement('canvas');
             c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
             info.thumb = c.toDataURL('image/jpeg', 0.6);
+            if (onThumb) onThumb(info.thumb);
           } catch (e) {}
           release();
         };
@@ -67,6 +68,40 @@
   var lastHtml = {};   // lewati innerHTML yang sama agar gambar tidak berkedip tiap ketikan
   function setHtml(id, html) { if (lastHtml[id] === html) return; lastHtml[id] = html; $(id).innerHTML = html; }
 
+  // pratinjau video terpilih di langkah 1
+  function showThumb(src) {
+    var t = $('vthumb');
+    if (src) { t.className = ''; t.innerHTML = '<img class="vthumb" alt="" src="' + esc(src) + '">'; }
+    else { t.className = 'vnothumb'; t.innerHTML = ''; t.textContent = '🎞'; }
+  }
+
+  // tab produk Shopee | TikTok: hanya platform yang dicentang; lencana jumlah; ● = masih wajib pilih produk
+  var curTab = 'shopee';
+  ['shopee', 'tiktok'].forEach(function (p) { $('ptab-' + p).addEventListener('change', function () { if ($('ptab-' + p).checked) curTab = p; refresh(); }); });
+  function renderTabs() {
+    var req = requiredProducts(), on = [];
+    ['shopee', 'tiktok'].forEach(function (p) {
+      var lab = $('ptlab-' + p);
+      lab.hidden = !CHK[p].checked;
+      lab.textContent = PNAME[p] + ' (' + sel[p].length + '/' + Core.MAX_PRODUCTS[p] + ')' + (req[p] && !sel[p].length ? ' ●' : '');
+      if (CHK[p].checked) on.push(p);
+    });
+    if (on.length && on.indexOf(curTab) < 0) curTab = on[0];
+    if (on.length) $('ptab-' + curTab).checked = true;
+  }
+
+  // indikator langkah: selesai (done) / sedang dikerjakan (on, langkah pertama yang belum lengkap)
+  function renderSteps(f) {
+    var done = [
+      !!f.video,
+      PLATS.some(function (p) { return CHK[p].checked; }),
+      productsMissing().length === 0,
+      !!String(f.description || '').trim(),
+      !$('when-sched').checked || !Number.isNaN(Date.parse(f.scheduledAt))
+    ], first = done.indexOf(false);
+    done.forEach(function (d, i) { $('sg' + (i + 1)).className = d ? 'done' : (i === first ? 'on' : ''); });
+  }
+
   function renderProducts() {
     var msg = catalogMsg;
     ['shopee', 'tiktok'].forEach(function (p) {
@@ -88,7 +123,12 @@
       }
       setHtml(box.id, html);
     });
+    var miss = productsMissing();
+    if (!CHK.shopee.checked && !CHK.tiktok.checked) msg = 'Produk hanya untuk Shopee dan TikTok. Instagram tanpa produk.';
+    else if (!msg && miss.length) msg = '✗ Pilih produk untuk ' + miss.map(function (p) { return PNAME[p]; }).join(' dan ') + '.';
     $('prod-msg').textContent = msg;
+    $('prod-msg').className = !catalogMsg && miss.length ? 'bad' : 'mut';
+    renderTabs();
   }
   // gambar produk gagal dimuat → ganti kotak ikon (error tidak menggelembung, jadi pakai fase capture)
   $('prodbox').addEventListener('error', function (e) {
@@ -147,8 +187,7 @@
 
   function refresh() {
     var f = readForm(), r = Core.validateForm(f), tags = Core.parseTags(f.hashtags);
-    var missing = productsMissing(), locked = missing.length > 0;
-    var errors = r.errors.filter(function (e) { return !(locked && e.code === 'no_video'); }).map(function (e) { return e.msg; });
+    var errors = r.errors.map(function (e) { return e.msg; });
     PLATS.forEach(function (p) {
       var len = Core.captionLength(p, f.description, tags), lim = Core.CAPTION_LIMIT[p];
       CNT[p].textContent = len + '/' + lim;
@@ -159,8 +198,9 @@
     $('errs').textContent = errors.map(function (m) { return '✗ ' + m; }).join('\n');
     $('warns').textContent = r.warnings.map(function (w) { return '⚠ ' + w.msg; }).join('\n');
     renderProducts();
-    $('file').disabled = locked;
-    $('vidgate').textContent = locked ? '🔒 Pilih produk ' + missing.map(function (p) { return PNAME[p]; }).join(' dan ') + ' dulu, baru pilih video.' : '';
+    $('file').disabled = false;
+    $('vidgate').textContent = '';
+    renderSteps(f);
     renderLibrary();
     $('send').disabled = errors.length > 0 || sending;
     return { errors: errors, warnings: r.warnings };
@@ -169,7 +209,7 @@
   // ---------- Pustaka video (T40): video yang masih ada di Drive hub; pilih lagi tanpa unggah ulang ----------
   var libVideos = [], libSel = null, libLoaded = false;
   function libMsg(t, cls) { $('lib-msg').textContent = t; $('lib-msg').className = cls || 'mut'; }
-  function resetVideo() { libSel = null; video = null; $('vinfo').textContent = 'Belum ada video.'; }
+  function resetVideo() { libSel = null; video = null; $('vinfo').textContent = 'Belum ada video.'; showThumb(null); }
   function setVmode(m) {
     $('vtab-file').className = m === 'file' ? 'on' : '';
     $('vtab-lib').className = m === 'lib' ? 'on' : '';
@@ -178,10 +218,10 @@
     if (m === 'lib' && !libLoaded) loadLibrary();
   }
   function renderLibrary() {
-    var locked = productsMissing().length > 0, html = '';
+    var html = '';
     libVideos.forEach(function (v) {
       var on = !!libSel && libSel.id === v.id;
-      html += '<div class="vrow' + (on ? ' sel' : '') + (locked ? ' locked' : '') + '" data-vid="' + esc(v.id) + '">' +
+      html += '<div class="vrow' + (on ? ' sel' : '') + '" data-vid="' + esc(v.id) + '">' +
         (v.thumb ? '<img class="vthumb" alt="" src="' + esc(v.thumb) + '">' : '<div class="vnothumb">🎬</div>') +
         '<div class="vtxt"><div class="vname">' + (on ? '✓ ' : '') + esc(v.name) + '</div><div class="vmeta">' + esc(Core.describeVideo(v)) + '</div></div>' +
         '<button class="sec" data-vdel="' + esc(v.id) + '" aria-label="Hapus video">🗑</button></div>';
@@ -202,8 +242,6 @@
       .then(function () { renderLibrary(); refresh(); });
   }
   function selectLibVideo(id) {
-    var miss = productsMissing();
-    if (miss.length) { libMsg('Pilih produk dulu, baru pilih video.', 'bad'); return; }
     var v = libVideos.filter(function (x) { return x.id === id; })[0];
     if (!v) return;
     if (libSel && libSel.id === id) { resetVideo(); }
@@ -212,6 +250,7 @@
       video = { name: v.name, size: v.size, mime: v.mime, durationSec: v.durationSec, width: v.width, height: v.height, driveFileId: v.id };
       $('file').value = '';
       $('vinfo').textContent = '✓ Dari pustaka: ' + v.name + ' · ' + Core.describeVideo(v);
+      showThumb(v.thumb || null);
     }
     libMsg('');
     refresh();
@@ -251,6 +290,30 @@
     else lockScreen();
   });
 
+  // ---------- Layar sukses (T64d): ringkasan platform + "Kirim lagi" ----------
+  var PFULL = { shopee: 'Shopee Video', tiktok: 'TikTok', instagram: 'Instagram' };
+  function showDone(f, message) {
+    var html = '';
+    PLATS.forEach(function (p) {
+      var pl = f.platforms[p];
+      if (!pl || !pl.enabled) return;
+      var n = (pl.products || []).length;
+      html += '<div><b>' + esc(PFULL[p]) + '</b><span>' + (p === 'instagram' ? 'tanpa produk' : (n + ' produk')) + '</span></div>';
+    });
+    html += '<div><b>Waktu</b><span>' + (f.scheduledAt ? esc(String(f.scheduledAt).replace('T', ' ')) : 'Sekarang') + '</span></div>';
+    $('done-msg').textContent = message || '';
+    $('done-sum').innerHTML = html;
+    $('done').hidden = false;
+  }
+  $('done-again').addEventListener('click', function () {
+    $('done').hidden = true;
+    sendMsg('');
+    $('desc').value = ''; $('tags').value = '';
+    refresh();
+    if (window.scrollTo) window.scrollTo(0, 0);
+  });
+  $('done-jobs').addEventListener('click', function () { $('done').hidden = true; showTab('daftar'); });
+
   $('send').addEventListener('click', function () {
     var file = $('file').files && $('file').files[0];
     var useLib = !!libSel;      // memilih dari pustaka mengosongkan kotak file, dan sebaliknya, jadi libSel yang terisi = pilihan terakhir
@@ -259,6 +322,7 @@
     if (!s.hubUrl || !s.token) { sendMsg('Isi pengaturan hub dulu.', 'bad'); showTab('setelan'); return; }
     if (useLib) { resume = null; sentFile = null; }
     else if (sentFile !== file) { resume = null; sentFile = file; }   // berkas lain → mulai dari awal
+    var formSnap = readForm();   // ringkasan layar sukses diambil sebelum form dikosongkan
     var uploader = window.PostHubUpload.create({});
     sending = true; $('send').disabled = true; sendMsg('Memulai …'); lockScreen();
     Core.submitFlow({
@@ -271,7 +335,8 @@
       resume = r.resume;
       sendMsg((r.ok ? '✓ ' : '✗ ') + r.message, r.ok ? 'ok' : 'bad');
       if (r.ok) {
-        if (!useLib && r.fileId && video && $('keep').checked) Core.saveVideoMeta(storage(), r.fileId, video);   // thumbnail untuk pustaka
+        if (!useLib && r.fileId && video) Core.saveVideoMeta(storage(), r.fileId, video);   // thumbnail untuk pustaka + kartu Daftar Job (T64c)
+        showDone(formSnap, r.message);
         sentFile = null; $('file').value = ''; resetVideo();
         libLoaded = false; if (!$('vpanel-lib').hidden) loadLibrary();
       } else if (r.stage === 'finish' && useLib) { libLoaded = false; loadLibrary(); }
@@ -282,16 +347,24 @@
   $('file').addEventListener('change', function () {
     var f = $('file').files && $('file').files[0];
     libSel = null;
-    if (!f) { video = null; $('vinfo').textContent = 'Belum ada video.'; refresh(); return; }
+    if (!f) { video = null; $('vinfo').textContent = 'Belum ada video.'; showThumb(null); refresh(); return; }
     $('vinfo').textContent = 'Membaca info video …';
+    showThumb(null);
     probe(f, function (info, ok) {
       video = info;
       $('vinfo').textContent = f.name + ' · ' + (f.size / 1048576).toFixed(1) + ' MB' +
         (ok ? ' · ' + info.width + '×' + info.height + ' · ' + info.durationSec.toFixed(1) + ' dtk' : ' · info tidak terbaca (mungkin HEVC/.mov)');
       refresh();
-    });
+    }, function (thumb) { if (video && video.name === f.name) showThumb(thumb); });
   });
-  ['desc', 'tags'].forEach(function (id) { $(id).addEventListener('input', refresh); });
+  $('desc').addEventListener('input', refresh);
+  // hashtag otomatis: awal tiap kata diberi '#' saat mengetik/menempel (logika sama dengan Uploader Reafter, T62b)
+  var tagsPrev = '';
+  $('tags').addEventListener('input', function () {
+    var t = $('tags'), r = Core.typeInto(tagsPrev, t.value, t.selectionStart);
+    if (r.value !== t.value) { t.value = r.value; try { t.setSelectionRange(r.caret, r.caret); } catch (e) {} }
+    tagsPrev = t.value; refresh();
+  });
   [CHK.shopee, CHK.tiktok, CHK.instagram, $('when-now'), $('when-sched'), $('sched')].forEach(function (el) {
     el.addEventListener('change', refresh);
   });
@@ -300,11 +373,26 @@
   // ---------- Daftar Job (T09): job.list, Batal, Lanjut (job.resume) ----------
   var jobsData = [];
   function jobsMsg(t, cls) { $('jobs-msg').textContent = t; $('jobs-msg').className = (cls || 'mut') + ' msg'; }
+  function prodImgOf(p, id) { var it = (catalog[p] || []).filter(function (x) { return x.id === id; })[0]; return it && it.img ? it.img : ''; }
   function renderJobs() {
-    var html = '';
+    var html = '', vm = Core.loadVideoMeta(storage());
     jobsData.forEach(function (j) {
-      var f = Core.formatJob(j);
-      html += '<div class="box" data-job="' + esc(f.id) + '"><strong>' + esc(f.title) + '</strong> <span class="' + f.cls + '">' + esc(f.statusText) + '</span>';
+      var f = Core.formatJob(j), vt = (vm[f.videoId] || {}).thumb, withProds = f.platforms.filter(function (p) { return p.products.length; });
+      html += '<div class="jcard" data-job="' + esc(f.id) + '"><div class="jvis">' +
+        (vt ? '<img class="jthumb" alt="" src="' + esc(vt) + '">' : '<div class="jnothumb">🎬</div>') + '<div class="jprods">';
+      withProds.forEach(function (p) {
+        html += '<div><div class="jpl">' + esc(p.label) + '</div><div class="jpthumbs">';
+        p.products.forEach(function (pr) {
+          var img = prodImgOf(p.key, pr.id);
+          html += img ? '<img class="jp" loading="lazy" referrerpolicy="no-referrer" alt="" title="' + esc(pr.name || pr.id) + '" src="' + esc(img) + '">'
+                      : '<div class="jpno" title="' + esc(pr.name || pr.id) + '">🛍</div>';
+        });
+        html += '</div></div>';
+      });
+      if (!withProds.length) html += '<div class="mut">Tanpa produk</div>';
+      html += '</div></div><div class="jhead"><div class="jtitle">' + esc(f.title) + '</div><span class="jbadge ' + f.cls + '">' + esc(f.statusText) + '</span></div>';
+      var meta = [f.when, f.sizeText].filter(Boolean).join(' · ');
+      if (meta) html += '<div class="jmeta">' + esc(meta) + '</div>';
       f.platforms.forEach(function (p) {
         html += '<div class="' + p.cls + '">' + esc(p.label) + ': ' + esc(p.text) + (p.msg ? ' · ' + esc(p.msg) : '') + '</div>';
         if (p.state === 'needsAction') {
@@ -320,6 +408,13 @@
     });
     $('jobs').innerHTML = html || '<div class="box mut">Belum ada job.</div>';
   }
+  // gambar produk/thumbnail job gagal dimuat → kotak ikon
+  $('jobs').addEventListener('error', function (e) {
+    var t = e && e.target;
+    if (!t || t.tagName !== 'IMG' || !t.parentNode) return;
+    var d = document.createElement('div'); d.className = t.className === 'jthumb' ? 'jnothumb' : 'jpno'; d.textContent = t.className === 'jthumb' ? '🎬' : '🛍';
+    t.parentNode.replaceChild(d, t);
+  }, true);
   function loadJobs() {
     var s = Core.loadSettings(storage());
     if (!s.hubUrl || !s.token) { jobsMsg('Isi pengaturan hub dulu.', 'bad'); return Promise.resolve(); }
