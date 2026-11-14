@@ -10,43 +10,22 @@
 ## 2. Tambah ke Layar Utama (iPhone)
 1. Buka alamat di atas dengan **Safari** (bukan Chrome).
 2. Ketuk tombol Bagikan → **Tambah ke Layar Utama** → Tambah.
-3. Buka dari ikon baru. Tab **Pengaturan**: isi URL web app hub dan token klien → Simpan → Tes koneksi.
+3. Buka dari ikon baru. Tab **Setelan**: isi URL web app hub dan token klien → Simpan → Tes koneksi.
 
-## 3. Pembaruan (setiap kali ada versi baru)
-1. Unggah ulang SEMUA berkas `pwa/` ke repositori (GitHub: *Add file → Upload files*, timpa berkas lama, *Commit changes*).
-2. Setiap perubahan berkas kerangka harus disertai kenaikan angka `CACHE` di `sw.js` (sekarang `post-hub-shell-v14`).
-3. Tunggu 1–2 menit, lalu **tutup penuh** aplikasi di HP (geser ke atas dari app switcher) dan buka lagi. Bila tampilan lama masih muncul, tutup-buka sekali lagi.
-4. Service worker hanya menyimpan kerangka halaman. Panggilan ke hub dan Google Drive selalu lewat jaringan.
-5. Hub (hanya bila tab "Pernah diunggah" menampilkan "Hub belum diperbarui"): tempel ulang `hub/Api.gs` DAN `hub/Upload.gs` di Apps Script, lalu **Deploy > Kelola deployment > Edit > Versi baru** (URL tetap).
-6. Thumbnail produk muncul setelah Reafter men-scrape katalog (Pengaturan > Scrape Produk).
+## 3. Pembaruan
+- Setelah mengunggah versi baru, naikkan angka `CACHE` di `sw.js` (`post-hub-shell-v2`, dst.), lalu tutup penuh dan buka ulang aplikasi.
+- Service worker hanya menyimpan kerangka halaman. Panggilan ke hub dan Google Drive selalu lewat jaringan.
 
-## 4. Cara pakai (v1.16.x)
-**Buat Posting** berupa Wizard 6 langkah, satu langkah per layar:
-1. **Video**: dari HP atau "Pernah diunggah". Setelah dipilih tampil label "Video terpilih", preview besar, dan tombol "Ganti video".
-2. **Platform**: Shopee Video, TikTok, Instagram.
-3. **Produk**: tab Shopee / TikTok. Wajib memilih bila katalog platform itu ada; bila katalog kosong boleh lanjut tanpa produk.
-4. **Deskripsi dan hashtag**: penghitung karakter per platform.
-5. **Waktu**: Sekarang atau Jadwalkan; kotak "Simpan video di Drive".
-6. **Ringkasan**: video, platform, produk per platform, deskripsi + hashtag, waktu. Tiap bagian punya tombol **Ubah**; setelah mengubah, tombol Lanjut berganti "Simpan, ke ringkasan". Tombol **Kirim** ada di langkah ini.
+## 3b. Pembaruan T39/T40 (produk dulu, thumbnail, pustaka video)
+1. Unggah ulang SEMUA berkas `pwa/` ke repositori (`index.html`, `core.js`, `app.js`, `sw.js`, ...). `sw.js` sudah dinaikkan ke `post-hub-shell-v2`.
+2. Hub: tempel ulang `hub/Api.gs` DAN `hub/Upload.gs` di Apps Script, lalu **Deploy > Kelola deployment > Edit > Versi baru** (URL tetap). Tanpa ini tab "Pernah diunggah" menampilkan "Hub belum diperbarui".
+3. Tutup penuh aplikasi di HP lalu buka lagi. Thumbnail produk muncul setelah Reafter men-scrape katalog (Pengaturan > Scrape Produk).
 
-Tombol **Kembali** dan **Lanjut** ada di bagian bawah. Bila Lanjut nonaktif, alasannya tertulis tepat di atasnya. Langkah di depan yang masih terkunci tidak bisa dilompati lewat bilah langkah di atas.
-
-**Daftar Job**: kartu bergambar; chip filter di atas daftar: Semua, Berjalan, Selesai, Gagal, Perlu tindakan (masing-masing dengan jumlah). Job "Sebagian berhasil" dihitung di Gagal; job dibatalkan hanya tampil di Semua.
-
-## 5. Cek manual di iPhone (belum pernah diuji di perangkat asli)
-Tes otomatis dan uji di Chromium (layar 390×844, mode terang dan gelap, hub tiruan) sudah lulus, tetapi hal berikut hanya bisa dipastikan di iPhone:
-- [ ] Setelah pembaruan, app dibuka penuh-ulang dan terlihat Wizard (ada bilah 6 langkah).
-- [ ] Langkah 1: pilih video dari HP, thumbnail muncul (tidak hitam), "Ganti video" bekerja.
-- [ ] Tombol Kembali/Lanjut tidak tertutup bilah tab bawah atau garis home iPhone; alasan tombol nonaktif terbaca.
-- [ ] Langkah 3: pilih produk Shopee (maks 6) dan TikTok (maks 1); Lanjut baru aktif setelah lengkap.
-- [ ] Langkah 5: "Jadwalkan" tanpa tanggal membuat Lanjut nonaktif dengan alasan.
-- [ ] Ringkasan: semua bagian benar; "Ubah" membuka langkah yang tepat dan kembali ke ringkasan.
-- [ ] Kirim video ≥ 50 MB dengan layar menyala; layar sukses muncul; "Kirim lagi" kembali ke langkah 1.
-- [ ] Daftar Job: chip filter menghitung dan menyaring dengan benar; Batalkan / Coba lagi masih jalan.
-- [ ] Ketuk kolom Deskripsi, Hashtag, Nama alternatif, Jadwal, dan Pengaturan: halaman TIDAK membesar sendiri.
-- [ ] Mode gelap dan "Kurangi Gerakan" (Aksesibilitas) tampil wajar.
-
-## 6. Catatan
+## 4. Catatan
 - Unggah video harus dilakukan dengan layar menyala dan halaman tetap terbuka (iOS menghentikan unggahan di latar belakang).
-- Kolom ketik memakai huruf 16px agar iPhone tidak memperbesar (zoom) halaman saat mengetik. Jangan diperkecil di CSS.
-- Nama alternatif video tersimpan di HP ini saja (localStorage); nama asli file di Drive tidak berubah.
+- Yang BELUM DIUJI: pemasangan di iPhone asli. Uji dengan video ≥ 50 MB.
+
+## 3c. Pembaruan T64d (tampilan baru "Pernah diunggah", layar sukses, animasi)
+1. Unggah ulang SEMUA berkas `pwa/` ke repositori GitHub Pages: `index.html`, `app.js`, `core.js`, `upload.js`, `manifest.json`, `sw.js`, ikon. Di GitHub: *Add file → Upload files*, timpa berkas lama, *Commit changes*. `sw.js` sudah dinaikkan ke `post-hub-shell-v5`.
+2. Tunggu 1–2 menit, lalu **tutup penuh** aplikasi di HP (geser ke atas dari app switcher) dan buka lagi. Bila tampilan lama masih muncul, tutup-buka sekali lagi.
+3. Yang baru: tab "Pernah diunggah" berupa kartu bergambar; setelah Kirim muncul layar sukses (ringkasan platform + tombol **Kirim lagi** / **Lihat Daftar Job**); animasi halus (otomatis nonaktif bila HP diatur "Kurangi Gerakan"); warna bilah status mengikuti mode terang/gelap.
